@@ -10,15 +10,19 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"os"
+	"strings"
 	"time"
 )
 
+// OpenTTDServer - an object representing the server connection
 type OpenTTDServer struct {
-	connection  net.Conn
-	rconDaily   []string
-	rconMonthly []string
-	rconYearly  []string
+	connection   net.Conn
+	serverName   string
+	rconDaily    []string
+	rconMonthly  []string
+	rconYearly   []string
+	connected    chan bool
+	disconnected chan bool
 }
 
 const (
@@ -83,58 +87,73 @@ const (
 	adminFrequencyAUTOMATIC = 0x40 ///< The admin gets information about this when it changes.
 )
 
-// var conn int
-
 // Connect to the OpenTTD server on the admin port
 func (server *OpenTTDServer) Connect(host string, port int, password string, botName string, botVersion string) {
 
-	// fmt.Printf("array: %v (%T) %d\n", toSend, toSend, size)
-	connectString := fmt.Sprintf("%s:%d", host, port)
-	conn, err := net.Dial("tcp", connectString)
-	if err != nil {
-		fmt.Printf("%v", err)
-		panic(err)
+	for {
+
+		// fmt.Printf("array: %v (%T) %d\n", toSend, toSend, size)
+		connectString := fmt.Sprintf("%s:%d", host, port)
+		conn, err := net.Dial("tcp", connectString)
+		if err != nil {
+			fmt.Printf("%v\n", err)
+			time.Sleep(time.Second * 2)
+			continue
+			//panic(err)
+		}
+
+		go server.listenSocket()
+
+		server.connected = make(chan bool)
+		server.disconnected = make(chan bool)
+
+		fmt.Printf("saying we are connected\n")
+		server.connection = conn
+		server.connected <- true
+
+		// start listening
+
+		// login
+		var toSend []byte
+		toSend = append(toSend[:], adminPacketAdminJOIN) // type
+		toSend = append(toSend[:], []byte(password)...)  // password
+		toSend = append(toSend[:], 0x0)
+		toSend = append(toSend[:], []byte(botName)...) // client name
+		toSend = append(toSend[:], 0x0)
+		toSend = append(toSend[:], []byte(botVersion)...) // version
+		toSend = append(toSend[:], 0x0)
+		size := len(toSend) + 2
+
+		toSend = append([]byte{byte(size), 0x0}, toSend[:]...)
+		server.connection.Write(toSend)
+
+		// register for daily updates
+		updateDateCmd := make([]byte, 2)
+		binary.LittleEndian.PutUint16(updateDateCmd, adminUpdateDATE)
+		updateDateDaily := make([]byte, 2)
+		binary.LittleEndian.PutUint16(updateDateDaily, adminFrequencyDAILY)
+
+		toSend = []byte{}
+		toSend = append(toSend, updateDateCmd...)
+		toSend = append(toSend, updateDateDaily...)
+		server.sendSocket(adminPacketAdminUPDATE_FREQUENCY, toSend)
+
+		// toSend = []byte{}
+		// toSend = append(toSend[:], adminPacketAdminUPDATE_FREQUENCY)
+		// toSend = append(toSend[:], adminUpdateCHAT, 0x0)
+		// toSend = append(toSend[:], adminFrequencyAUTOMATIC, 0x0)
+
+		// size = len(toSend) + 2
+		//
+		// toSend = append([]byte{byte(size), 0x0}, toSend[:]...)
+		// fmt.Printf("array: %v (%T) %d\n", toSend, toSend, size)
+		// conn.Write(toSend)
+
+		// wait until we are told we disconnected
+		<-server.disconnected
+		fmt.Printf("Reconnecting....")
+		time.Sleep(2 * time.Second)
 	}
-	server.connection = conn
-
-	// start listening
-	go server.listenSocket()
-
-	// login
-	var toSend []byte
-	toSend = append(toSend[:], adminPacketAdminJOIN) // type
-	toSend = append(toSend[:], []byte(password)...)  // password
-	toSend = append(toSend[:], 0x0)
-	toSend = append(toSend[:], []byte(botName)...) // client name
-	toSend = append(toSend[:], 0x0)
-	toSend = append(toSend[:], []byte(botVersion)...) // version
-	toSend = append(toSend[:], 0x0)
-	size := len(toSend) + 2
-
-	toSend = append([]byte{byte(size), 0x0}, toSend[:]...)
-	server.connection.Write(toSend)
-
-	// register for daily updates
-	updateDateCmd := make([]byte, 2)
-	binary.LittleEndian.PutUint16(updateDateCmd, adminUpdateDATE)
-	updateDateDaily := make([]byte, 2)
-	binary.LittleEndian.PutUint16(updateDateDaily, adminFrequencyDAILY)
-
-	toSend = []byte{}
-	toSend = append(toSend, updateDateCmd...)
-	toSend = append(toSend, updateDateDaily...)
-	server.sendSocket(adminPacketAdminUPDATE_FREQUENCY, toSend)
-
-	// toSend = []byte{}
-	// toSend = append(toSend[:], adminPacketAdminUPDATE_FREQUENCY)
-	// toSend = append(toSend[:], adminUpdateCHAT, 0x0)
-	// toSend = append(toSend[:], adminFrequencyAUTOMATIC, 0x0)
-
-	// size = len(toSend) + 2
-	//
-	// toSend = append([]byte{byte(size), 0x0}, toSend[:]...)
-	// fmt.Printf("array: %v (%T) %d\n", toSend, toSend, size)
-	// conn.Write(toSend)
 
 }
 
@@ -153,24 +172,24 @@ func (server *OpenTTDServer) RegisterDateChange(period string, command string) {
 }
 
 func (server *OpenTTDServer) dateChanged(dt time.Time) {
-  // do every daily one
+	// do every daily one
 	for _, rconCommand := range server.rconDaily {
-		server.rconCommand(rconCommand)
+		server.rconCommand(processCommand(rconCommand, dt))
 	}
 
-  // monthly ones on the 1st
-  if dt.Day() == 1 {
-    for _, rconCommand := range server.rconMonthly {
-      server.rconCommand(rconCommand)
-    }
-  }
+	// monthly ones on the 1st
+	if dt.Day() == 1 {
+		for _, rconCommand := range server.rconMonthly {
+			server.rconCommand(processCommand(rconCommand, dt))
+		}
+	}
 
-  // yearly on the 1st of jan
-  if dt.Day() == 1 && dt.Month() == 1 {
-    for _, rconCommand := range server.rconYearly {
-      server.rconCommand(rconCommand)
-    }
-  }
+	// yearly on the 1st of jan
+	if dt.Day() == 1 && dt.Month() == 1 {
+		for _, rconCommand := range server.rconYearly {
+			server.rconCommand(processCommand(rconCommand, dt))
+		}
+	}
 
 }
 
@@ -183,20 +202,31 @@ func (server OpenTTDServer) rconCommand(command string) {
 	server.sendSocket(adminPacketAdminRCON, rconCommand)
 }
 
+func processCommand(command string, dt time.Time) string {
+	command = strings.Replace(command, "%Y", fmt.Sprintf("%04d", dt.Year()), -1)
+	command = strings.Replace(command, "%M", fmt.Sprintf("%02d", dt.Month()), -1)
+	command = strings.Replace(command, "%D", fmt.Sprintf("%02d", dt.Day()), -1)
+	return command
+}
+
 func (server *OpenTTDServer) sendSocket(protocol int, data []byte) {
-	fmt.Printf("Going to send using protocol %v this data: %v\n", protocol, data)
+	// fmt.Printf("Going to send using protocol %v this data: %v\n", protocol, data)
 	toSend := make([]byte, 3)     // start with 3 bytes for the length and protocol
 	size := uint16(len(data) + 3) // size 2 bytes, plus protocol
 	binary.LittleEndian.PutUint16(toSend, size)
 	// toSend = append(toSend[:],
 	toSend[2] = byte(protocol)
 	toSend = append(toSend, data...)
-	fmt.Printf("Going to send this: %v\n", toSend)
+	// fmt.Printf("Going to send this: %v\n", toSend)
 	server.connection.Write(toSend)
 }
 
 func (server *OpenTTDServer) listenSocket() {
-	fmt.Printf("Listening to socket...\n")
+
+	fmt.Println("waiting for connection...")
+	// fmt.Printf("Listening to socket...\n")
+	<-server.connected
+	fmt.Println("connected indication")
 
 	var chunk []byte
 
@@ -210,10 +240,18 @@ SocketLoop:
 			if cErr, ok := err.(*net.OpError); ok {
 				if cErr.Err.Error() == "read: connection reset by peer" {
 					fmt.Println("Connection reset by peer - check the openttd log for details")
-					os.Exit(1)
+					server.connection = nil
+					server.disconnected <- true
+					return
+
 				}
+			} else {
+				fmt.Println("Error occurred on socket: ", err)
+				server.connection = nil
+				server.disconnected <- true
+				return
 			}
-			panic(err)
+			return
 		}
 
 		// fmt.Printf("Read %d bytes from socket\n", s)
@@ -245,21 +283,23 @@ SocketLoop:
 			// fmt.Printf("packet type %d and size is %v bytes, I read %d from socket\n", packetType, len(packetData), s)
 
 			if packetType == adminPacketServerPROTOCOL {
-				fmt.Print(" - Got a adminPacketServerPROTOCOL packet\n")
+				// fmt.Print(" - Got a adminPacketServerPROTOCOL packet\n")
 			} else if packetType == adminPacketServerWELCOME {
-				fmt.Print(" - Got a adminPacketServerWELCOME packet\n")
-				serverName := extractString(packetData[0:])
-				fmt.Printf("   * server name: %s\n", serverName)
+				// fmt.Print(" - Got a adminPacketServerWELCOME packet\n")
+				server.serverName = extractString(packetData[0:])
+				// fmt.Printf("   * server name: %s\n", serverName)
 			} else if packetType == adminPacketServerSHUTDOWN {
-				fmt.Print(" - Got a adminPacketServerSHUTDOWN packet\n")
-				os.Exit(1)
+				fmt.Print("* Got a adminPacketServerSHUTDOWN packet - will try to reconnect\n")
+				server.connection = nil
+				server.disconnected <- true
+				return
+
 			} else if packetType == adminPacketServerDATE {
-				fmt.Print(" - Got a damn adminPacketServerDATE\n")
 				// [[7 0 107 84 252 10 0 0 0
 				date := binary.LittleEndian.Uint32(packetData[0:4])
 				epochDate := time.Date(0, time.January, 1, 0, 0, 0, 0, time.UTC)
 				dt := epochDate.AddDate(0, 0, int(date))
-				fmt.Printf("   * Date is %v\n", dt)
+				// fmt.Printf("   * Date is %v\n", dt)
 				server.dateChanged(dt)
 				// uint32
 			} else if packetType == adminPacketServerCHAT {
@@ -279,8 +319,7 @@ SocketLoop:
 				string := extractString(packetData[0:])
 				fmt.Printf("rcon end : %s\n", string)
 			} else {
-				fmt.Printf(" - Got an unknown packet %v\n", packetType)
-				fmt.Printf(" - received from server: %v [%v]\n", string(packetData), packetData)
+				fmt.Printf("* Unknown packet received from server: %v [%v]\n", string(packetData), packetData)
 			}
 
 			// fmt.Printf("removing the chunk we have processed\n")
@@ -288,7 +327,7 @@ SocketLoop:
 		}
 
 		// check if there is data left to process in the current data
-		fmt.Printf("remaining in chunk %d bytes", len(chunk))
+		// fmt.Printf("remaining in chunk %d bytes", len(chunk))
 		if len(chunk) < 3 {
 			// we don't even have enough for a length and protocol type, so may
 			// as well go sit on the socket
