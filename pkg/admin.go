@@ -14,6 +14,14 @@ import (
 	"time"
 )
 
+
+type OpenTTDServer struct {
+    connection net.Conn
+    rconDaily []string
+    rconMonthly []string
+    rconYearly []string
+}
+
 const (
 	adminPacketAdminJOIN             = 0 ///< The admin announces and authenticates itself to the server.
 	adminPacketAdminQUIT             = 1 ///< The admin tells the server that it is quitting.
@@ -79,7 +87,7 @@ const (
 // var conn int
 
 // Connect to the OpenTTD server on the admin port
-func Connect(host string, port int, password string, botName string, botVersion string) {
+func ( server OpenTTDServer ) Connect(host string, port int, password string, botName string, botVersion string) {
 
   // fmt.Printf("array: %v (%T) %d\n", toSend, toSend, size)
   connectString := fmt.Sprintf("%s:%d", host, port)
@@ -88,9 +96,10 @@ func Connect(host string, port int, password string, botName string, botVersion 
     fmt.Printf("%v", err)
 		panic(err)
 	}
+  server.connection = conn
 
   // start listening
-  go listenSocket(conn)
+  go server.listenSocket()
 
 	var toSend []byte
 	toSend = append(toSend[:], adminPacketAdminJOIN) // type
@@ -104,7 +113,7 @@ func Connect(host string, port int, password string, botName string, botVersion 
 
 	toSend = append([]byte{byte(size), 0x0}, toSend[:]...)
 
-	conn.Write(toSend)
+	server.connection.Write(toSend)
 
 	updateDateCmd := make([]byte, 2)
 	binary.LittleEndian.PutUint16(updateDateCmd,adminUpdateDATE)
@@ -114,7 +123,7 @@ func Connect(host string, port int, password string, botName string, botVersion 
 	toSend = []byte{}
   toSend = append(toSend, updateDateCmd...)
 	toSend = append(toSend, updateDateDaily...)
-	sendSocket(conn, adminPacketAdminUPDATE_FREQUENCY, toSend)
+	server.sendSocket(adminPacketAdminUPDATE_FREQUENCY, toSend)
 
 	// toSend = []byte{}
 	// toSend = append(toSend[:], adminPacketAdminUPDATE_FREQUENCY)
@@ -130,11 +139,20 @@ func Connect(host string, port int, password string, botName string, botVersion 
 }
 
 // Register to send a command periodically
-func Register(period string, command string) {
+func ( server OpenTTDServer ) Register (period string, command string) {
+  if period == "daily" {
+    server.rconDaily = append(server.rconDaily, command)
+  } else if period == "monthly" {
+    server.rconMonthly = append(server.rconMonthly, command)
+  } else if period == "yearly" {
+    server.rconYearly  = append(server.rconYearly, command)
+  } else {
+    panic("bad period " + period)
+  }
   return
 }
 
-func sendSocket(conn net.Conn, protocol int, data []byte)  {
+func ( server OpenTTDServer ) sendSocket( protocol int, data []byte)  {
 	fmt.Printf("Going to send using protocol %v this data: %v\n", protocol, data)
 	toSend := make([]byte, 3)     // start with 3 bytes for the length and protocol
 	size := uint16(len(data) + 3) // size 2 bytes, plus protocol
@@ -143,10 +161,10 @@ func sendSocket(conn net.Conn, protocol int, data []byte)  {
 	toSend[2] = byte(protocol)
 	toSend = append(toSend, data...)
 	fmt.Printf("Going to send this: %v\n", toSend)
-	conn.Write(toSend)
+	server.connection.Write(toSend)
 }
 
-func listenSocket(conn net.Conn) {
+func ( server OpenTTDServer ) listenSocket() {
 	fmt.Printf("Listening to socket...\n")
 
 	var chunk []byte
@@ -156,7 +174,7 @@ SocketLoop:
 
 		// fmt.Printf("Waiting for socket data\n")
 		socketData := make([]byte, 1024)
-		s, err := conn.Read(socketData)
+		s, err := server.connection.Read(socketData)
 		if err != nil {
       if cErr, ok := err.(*net.OpError); ok {
         if cErr.Err.Error() == "read: connection reset by peer" {
