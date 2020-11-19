@@ -87,7 +87,7 @@ const (
 // var conn int
 
 // Connect to the OpenTTD server on the admin port
-func ( server OpenTTDServer ) Connect(host string, port int, password string, botName string, botVersion string) {
+func ( server *OpenTTDServer ) Connect(host string, port int, password string, botName string, botVersion string) {
 
   // fmt.Printf("array: %v (%T) %d\n", toSend, toSend, size)
   connectString := fmt.Sprintf("%s:%d", host, port)
@@ -101,6 +101,7 @@ func ( server OpenTTDServer ) Connect(host string, port int, password string, bo
   // start listening
   go server.listenSocket()
 
+  // login
 	var toSend []byte
 	toSend = append(toSend[:], adminPacketAdminJOIN) // type
 	toSend = append(toSend[:], []byte(password)...)        // password
@@ -112,13 +113,13 @@ func ( server OpenTTDServer ) Connect(host string, port int, password string, bo
 	size := len(toSend) + 2
 
 	toSend = append([]byte{byte(size), 0x0}, toSend[:]...)
-
 	server.connection.Write(toSend)
 
+  // register for daily updates
 	updateDateCmd := make([]byte, 2)
 	binary.LittleEndian.PutUint16(updateDateCmd,adminUpdateDATE)
 	updateDateDaily := make([]byte, 2)
-	binary.LittleEndian.PutUint16(updateDateDaily,adminFrequencyMONTHLY)
+	binary.LittleEndian.PutUint16(updateDateDaily,adminFrequencyDAILY)
 
 	toSend = []byte{}
   toSend = append(toSend, updateDateCmd...)
@@ -138,8 +139,8 @@ func ( server OpenTTDServer ) Connect(host string, port int, password string, bo
 
 }
 
-// Register to send a command periodically
-func ( server OpenTTDServer ) Register (period string, command string) {
+// RegisterDateChange to send a command periodically
+func ( server *OpenTTDServer ) RegisterDateChange (period string, command string) {
   if period == "daily" {
     server.rconDaily = append(server.rconDaily, command)
   } else if period == "monthly" {
@@ -152,7 +153,22 @@ func ( server OpenTTDServer ) Register (period string, command string) {
   return
 }
 
-func ( server OpenTTDServer ) sendSocket( protocol int, data []byte)  {
+func (server *OpenTTDServer ) dateChanged(dt time.Time) {
+  for _, rconCommand := range server.rconDaily {
+		server.rconCommand(rconCommand)
+	}
+}
+
+func (server OpenTTDServer ) rconCommand(command string) {
+
+  var rconCommand []byte
+  rconCommand = append(rconCommand, command...)
+  rconCommand = append(rconCommand, 0000)
+
+	server.sendSocket(adminPacketAdminRCON, rconCommand)
+}
+
+func ( server *OpenTTDServer ) sendSocket( protocol int, data []byte)  {
 	fmt.Printf("Going to send using protocol %v this data: %v\n", protocol, data)
 	toSend := make([]byte, 3)     // start with 3 bytes for the length and protocol
 	size := uint16(len(data) + 3) // size 2 bytes, plus protocol
@@ -164,7 +180,7 @@ func ( server OpenTTDServer ) sendSocket( protocol int, data []byte)  {
 	server.connection.Write(toSend)
 }
 
-func ( server OpenTTDServer ) listenSocket() {
+func ( server *OpenTTDServer ) listenSocket() {
 	fmt.Printf("Listening to socket...\n")
 
 	var chunk []byte
@@ -229,6 +245,7 @@ SocketLoop:
 				epochDate := time.Date(0, time.January, 1, 0, 0, 0, 0, time.UTC)
 				dt := epochDate.AddDate(0, 0, int(date))
 				fmt.Printf("   * Date is %v\n", dt)
+        server.dateChanged(dt)
 				// uint32
 			} else if packetType == adminPacketServerCHAT {
 				// fmt.Printf(" - Got a chat packet:\n%v", packetData)
@@ -239,7 +256,14 @@ SocketLoop:
 				chatMsg := extractString(packetData[6:])
 				chatData := binary.LittleEndian.Uint64(packetData[len(packetData)-8:])
 				fmt.Printf("action %v desttype %v, client id %v msg %v data %v\n", chatAction, chatDestType, chatClientID, string(chatMsg), chatData)
-			} else {
+      } else if packetType == adminPacketServerRCON {
+        colour := binary.LittleEndian.Uint16(packetData[0:2])
+        string := extractString(packetData[2:])
+        fmt.Printf("rcon: colour %v : %s\n", colour, string)
+      } else if packetType == adminPacketServerRCON_END {
+        string := extractString(packetData[0:])
+        fmt.Printf("rcon end : %s\n", string)
+      } else {
 				fmt.Printf(" - Got an unknown packet %v\n", packetType)
 				fmt.Printf(" - received from server: %v [%v]\n", string(packetData), packetData)
 			}
