@@ -31,6 +31,9 @@ These intervals are obviously in game time!
 
 ## running
 
+If you don't want to build from source, grab a binary release from
+https://github.com/tardisx/openttd-admin/releases for your architecture.
+
 The tool is a command line driven executable. It does not require installation.
 Just copy it somewhere and run it.
 
