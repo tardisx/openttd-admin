@@ -1,3 +1,5 @@
+// Package admin provides an interface to connect to and manage a running
+// OpenTTD dedicated server.
 package admin
 
 // references
@@ -88,7 +90,9 @@ const (
 	adminFrequencyAUTOMATIC = 0x40 ///< The admin gets information about this when it changes.
 )
 
-// Connect to the OpenTTD server on the admin port
+// Connect to the OpenTTD server on the admin port. Requires that the server
+// is listening on the admin port (admin_password must be specified in the config).
+// This method will block, and automatically attempt to reconnect if disconnected.
 func (server *OpenTTDServer) Connect(host string, port int, password string, botName string, botVersion string) {
 
 	for {
@@ -160,7 +164,11 @@ func (server *OpenTTDServer) Connect(host string, port int, password string, bot
 
 }
 
-// RegisterDateChange to send a command periodically
+// RegisterDateChange sends an arbitrary number of rcon commands when certain
+// (game time) date changes occur. The possible periods are 'daily', 'monthly'
+// and 'yearly'.
+//
+// Note that this must be called before Connect.
 func (server *OpenTTDServer) RegisterDateChange(period string, command string) {
 	if period == "daily" {
 		server.rconDaily = append(server.rconDaily, command)

@@ -1,7 +1,7 @@
 package main
 
 import (
-  "github.com/tardisx/openttd-admin/pkg"
+  "github.com/tardisx/openttd-admin/pkg/admin"
   "flag"
   "strings"
   "os"
