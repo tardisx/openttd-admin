@@ -10,7 +10,7 @@ import (
 
 // ./openttd_multitool --monthly "say \"hi it is a new month\"" --daily "say \"wow a new day %D"
 
-const currentVersion = "0.01"
+const currentVersion = "0.02"
 
 type dailyFlags []string
 type monthlyFlags []string
