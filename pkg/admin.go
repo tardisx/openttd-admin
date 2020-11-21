@@ -12,6 +12,7 @@ import (
 	"net"
 	"strings"
 	"time"
+	"log"
 )
 
 // OpenTTDServer - an object representing the server connection
@@ -93,21 +94,23 @@ func (server *OpenTTDServer) Connect(host string, port int, password string, bot
 	for {
 
 		// fmt.Printf("array: %v (%T) %d\n", toSend, toSend, size)
+		log.Println("connecting...")
 		connectString := fmt.Sprintf("%s:%d", host, port)
 		conn, err := net.Dial("tcp", connectString)
 		if err != nil {
-			fmt.Printf("%v\n", err)
+			log.Printf("error connecting: %v\n", err)
 			time.Sleep(time.Second * 2)
 			continue
 			//panic(err)
 		}
+
+		log.Println("connected")
 
 		go server.listenSocket()
 
 		server.connected = make(chan bool)
 		server.disconnected = make(chan bool)
 
-		fmt.Printf("saying we are connected\n")
 		server.connection = conn
 		server.connected <- true
 
@@ -223,10 +226,9 @@ func (server *OpenTTDServer) sendSocket(protocol int, data []byte) {
 
 func (server *OpenTTDServer) listenSocket() {
 
-	fmt.Println("waiting for connection...")
+	// fmt.Println("waiting for connection...")
 	// fmt.Printf("Listening to socket...\n")
 	<-server.connected
-	fmt.Println("connected indication")
 
 	var chunk []byte
 
@@ -239,14 +241,14 @@ SocketLoop:
 		if err != nil {
 			if cErr, ok := err.(*net.OpError); ok {
 				if cErr.Err.Error() == "read: connection reset by peer" {
-					fmt.Println("Connection reset by peer - check the openttd log for details")
+					log.Println("Connection reset by peer - check the openttd log for details")
 					server.connection = nil
 					server.disconnected <- true
 					return
 
 				}
 			} else {
-				fmt.Println("Error occurred on socket: ", err)
+				log.Println("Error occurred on socket: ", err)
 				server.connection = nil
 				server.disconnected <- true
 				return
@@ -285,11 +287,11 @@ SocketLoop:
 			if packetType == adminPacketServerPROTOCOL {
 				// fmt.Print(" - Got a adminPacketServerPROTOCOL packet\n")
 			} else if packetType == adminPacketServerWELCOME {
-				// fmt.Print(" - Got a adminPacketServerWELCOME packet\n")
+				log.Println("received welcome packet")
 				server.serverName = extractString(packetData[0:])
 				// fmt.Printf("   * server name: %s\n", serverName)
 			} else if packetType == adminPacketServerSHUTDOWN {
-				fmt.Print("* Got a adminPacketServerSHUTDOWN packet - will try to reconnect\n")
+				log.Println("server shutting down - will try to reconnect")
 				server.connection = nil
 				server.disconnected <- true
 				return
@@ -310,16 +312,16 @@ SocketLoop:
 				chatClientID := binary.LittleEndian.Uint32(packetData[2:6])
 				chatMsg := extractString(packetData[6:])
 				chatData := binary.LittleEndian.Uint64(packetData[len(packetData)-8:])
-				fmt.Printf("action %v desttype %v, client id %v msg %v data %v\n", chatAction, chatDestType, chatClientID, string(chatMsg), chatData)
+				log.Printf("chat message: action %v desttype %v, client id %v msg %v data %v\n", chatAction, chatDestType, chatClientID, string(chatMsg), chatData)
 			} else if packetType == adminPacketServerRCON {
 				colour := binary.LittleEndian.Uint16(packetData[0:2])
 				string := extractString(packetData[2:])
-				fmt.Printf("rcon: colour %v : %s\n", colour, string)
+				log.Printf("rcon: colour %v : %s\n", colour, string)
 			} else if packetType == adminPacketServerRCON_END {
 				string := extractString(packetData[0:])
-				fmt.Printf("rcon end : %s\n", string)
+				log.Printf("rcon end : %s\n", string)
 			} else {
-				fmt.Printf("* Unknown packet received from server: %v [%v]\n", string(packetData), packetData)
+				log.Printf("unknown packet received from server: %v [%v]\n", string(packetData), packetData)
 			}
 
 			// fmt.Printf("removing the chunk we have processed\n")
