@@ -7,16 +7,11 @@ import (
   "os"
 )
 
-
-// ./openttd_multitool --monthly "say \"hi it is a new month\"" --daily "say \"wow a new day %D"
-
 const currentVersion = "0.02"
 
 type dailyFlags []string
 type monthlyFlags []string
 type yearlyFlags []string
-
-
 
 func (i *dailyFlags) String() string {
     // change this, this is just can example to satisfy the interface
