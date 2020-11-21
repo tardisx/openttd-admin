@@ -4,7 +4,7 @@ import (
   "github.com/tardisx/openttd-admin/pkg"
   "flag"
   "strings"
-  // "fmt"
+  "os"
 )
 
 
@@ -65,6 +65,11 @@ func main() {
   flag.StringVar(&password, "password", "", "The password for the admin interface ('admin_password' in openttd.cfg)")
   flag.IntVar(&port, "port", 3977, "The port number of the admin interface (default is 3977)")
   flag.Parse()
+
+  if password == "" {
+    println("ERROR: You must supply a password")
+    os.Exit(1)
+  }
 
   server := admin.OpenTTDServer{}
 
