@@ -21,6 +21,9 @@ The openttd_multitool connects to the OpenTTD Admin port (default 3977)
 and stays connected. It monitors the game date, and performs your custom commands
 at periodic intervals.
 
+It supports string substitution of commands to embed the current (game) date 
+into commands or filenames.
+
 Possible intervals are:
 
 * daily
@@ -28,6 +31,12 @@ Possible intervals are:
 * yearly
 
 These intervals are obviously in game time!
+
+Possible string substitutions are:
+
+* %Y - 4 digit year
+* %M - 2 digit month
+* %D - 2 digit day of month
 
 ## running
 
