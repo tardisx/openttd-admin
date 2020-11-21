@@ -1,6 +1,6 @@
 # openttd-admin
 
-Golang interface to an OpenTTD server, and standalone 'openttd_multitool' binary 
+This is a Golang interface to an OpenTTD server, and a standalone 'openttd_multitool' binary 
 for simple, periodic server operations.
 
 The latter might include periodically:
@@ -26,16 +26,16 @@ These intervals are obviously in game time!
 You can configure the tool to send any command that you would type at the OpenTTD
 console. Here are a few examples:
 
-    openttd_multitool --hostname localhost --password abc --daily "say \"Hello to all players\""
+    openttd_multitool -hostname localhost -password abc -daily "say \"Hello to all players\""
 
 This sends an annoying message to all players, every day. Note the quoting requirements to ensure
 that the argument to the "say" command in OpenTTD comes through as a single argument.
 
-    openttd_multitool --hostname localhost --password abc --monthly "save mygame-%Y-%M"
+    openttd_multitool -hostname localhost -password abc -monthly "save mygame-%Y-%M"
 
 This saves the game once per month, with a filename like "mygame-2020-11.sav".
 
-    openttd_multitool --hostname localhost --password abc --yearly "screenshot giant screenshot-%Y%M%D"
+    openttd_multitool -hostname localhost -password abc -yearly "screenshot giant screenshot-%Y%M%D"
 
 This generates a screenshot once per year of the entire map, with a name like "screenshot-20201121.png".
 
