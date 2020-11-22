@@ -28,12 +28,15 @@ type OpenTTDServer struct {
 	MapLandscape    byte
 	MapX            uint16
 	MapY            uint16
+	MapCreationDate time.Time
 
 	rconDaily    []string
 	rconMonthly  []string
 	rconYearly   []string
 	connected    chan bool
 	disconnected chan bool
+
+	frequencies [adminUpdateEND]uint16
 }
 
 const (
@@ -229,23 +232,17 @@ func processCommand(command string, dt time.Time) string {
 }
 
 func (server *OpenTTDServer) sendSocket(protocol int, data []byte) {
-	// fmt.Printf("Going to send using protocol %v this data: %v\n", protocol, data)
 	toSend := make([]byte, 3)     // start with 3 bytes for the length and protocol
 	size := uint16(len(data) + 3) // size 2 bytes, plus protocol
 	binary.LittleEndian.PutUint16(toSend, size)
-	// toSend = append(toSend[:],
 	toSend[2] = byte(protocol)
 	toSend = append(toSend, data...)
-	// fmt.Printf("Going to send this: %v\n", toSend)
 	server.connection.Write(toSend)
 }
 
 func (server *OpenTTDServer) listenSocket() {
 
-	// fmt.Println("waiting for connection...")
-	// fmt.Printf("Listening to socket...\n")
 	<-server.connected
-
 	var chunk []byte
 
 SocketLoop:
@@ -289,22 +286,31 @@ SocketLoop:
 			packetSize := binary.LittleEndian.Uint16(chunk[0:2])
 
 			// if we don't have enough bytes yet, just loop around
-			// fmt.Printf("current chunk %d bytes, indicated packet size %d\n", len(chunk), packetSize)
 			if packetSize > uint16(len(chunk)) {
-				// fmt.Printf("incomplete data, waiting for more from socket\n")
 				continue SocketLoop
 			}
 
 			// so we are good to continue processing
 			packetType := int(chunk[2])
 			packetData := chunk[3:packetSize]
-			// fmt.Printf("packet type %d and size is %v bytes, I read %d from socket\n", packetType, len(packetData), s)
 
+			// figure out what type of packet this is and process it
 			if packetType == adminPacketServerPROTOCOL {
-				// fmt.Print(" - Got a adminPacketServerPROTOCOL packet\n")
+				log.Println("received protocol packet")
+				adminUpdateDataStart := 1
+				var frequencies [adminUpdateEND]uint16
+				for i := 0; i < adminUpdateEND; i++ {
+
+						indexPos := adminUpdateDataStart+(i*5)+1
+						index := binary.LittleEndian.Uint16(packetData[indexPos:indexPos+2])
+						freqPos := adminUpdateDataStart+(i*5)+3
+						allowedFreq := binary.LittleEndian.Uint16(packetData[freqPos:freqPos+2])
+						frequencies[index] = allowedFreq
+				}
+				server.frequencies = frequencies
+
 			} else if packetType == adminPacketServerWELCOME {
 				log.Println("received welcome packet")
-				fmt.Printf("packet: %+v?\n", packetData[:])
 				var next int
 				server.ServerName, next = extractString(packetData[:], 0)
 				server.ServerVersion, next = extractString(packetData[:], next)
@@ -313,19 +319,21 @@ SocketLoop:
 				} else if packetData[next] == 0001 {
 					server.ServerDedicated = true
 				} else {
-					fmt.Printf("not bool %v?\n", packetData[next])
+					panic(fmt.Sprintf("not bool %v?\n", packetData[next]))
 				}
 				server.MapName, next = extractString(packetData[:], next+1)
 				server.MapSeed = binary.LittleEndian.Uint32(packetData[next : next+4])
 				server.MapLandscape = packetData[next+4]
-				// todo
-				// p->Send_uint32(ConvertYMDToDate(_settings_game.game_creation.starting_year, 0, 1));
+
+				creationDate := binary.LittleEndian.Uint32(packetData[next+5:next+9])
+				epochDate := time.Date(0, time.January, 1, 0, 0, 0, 0, time.UTC)
+				dt := epochDate.AddDate(0, 0, int(creationDate))
+				server.MapCreationDate = dt
+
 				server.MapX = binary.LittleEndian.Uint16(packetData[next+9 : next+11])
 				server.MapY = binary.LittleEndian.Uint16(packetData[next+11 : next+13])
 
-				log.Printf("server: %s version: %s dedicated: %v map: %s %d/%d size\n", server.ServerName, server.ServerVersion, server.ServerDedicated, server.MapName, server.MapX, server.MapY)
-
-				// fmt.Printf("   * server name: %s\n", ServerName)
+				log.Printf("server: %v\n", server)
 			} else if packetType == adminPacketServerSHUTDOWN {
 				log.Println("server shutting down - will try to reconnect")
 				server.connection = nil
@@ -333,20 +341,14 @@ SocketLoop:
 				return
 
 			} else if packetType == adminPacketServerDATE {
-				// [[7 0 107 84 252 10 0 0 0
 				date := binary.LittleEndian.Uint32(packetData[0:4])
 				epochDate := time.Date(0, time.January, 1, 0, 0, 0, 0, time.UTC)
 				dt := epochDate.AddDate(0, 0, int(date))
-				// fmt.Printf("   * Date is %v\n", dt)
 				server.dateChanged(dt)
-				// uint32
 			} else if packetType == adminPacketServerCHAT {
-				// fmt.Printf(" - Got a chat packet:\n%v", packetData)
-				// [3 0 3 0 0 0 98 105 116 104 99 105 110 103 0 0 0 0 0 0 0 0 0]
 				chatAction := int8(packetData[0])
 				chatDestType := int8(packetData[1])
 				chatClientID := binary.LittleEndian.Uint32(packetData[2:6])
-				// var chatMsg string
 				chatMsg, _ := extractString(packetData[:], 6)
 				chatData := binary.LittleEndian.Uint64(packetData[len(packetData)-8:])
 				log.Printf("chat message: action %v desttype %v, client id %v msg %v data %v\n", chatAction, chatDestType, chatClientID, string(chatMsg), chatData)
@@ -361,12 +363,10 @@ SocketLoop:
 				log.Printf("unknown packet received from server: %v [%v]\n", string(packetData), packetData)
 			}
 
-			// fmt.Printf("removing the chunk we have processed\n")
 			chunk = chunk[packetSize:]
 		}
 
 		// check if there is data left to process in the current data
-		// fmt.Printf("remaining in chunk %d bytes", len(chunk))
 		if len(chunk) < 3 {
 			// we don't even have enough for a length and protocol type, so may
 			// as well go sit on the socket
