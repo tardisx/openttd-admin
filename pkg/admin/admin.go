@@ -20,7 +20,15 @@ import (
 // OpenTTDServer - an object representing the server connection
 type OpenTTDServer struct {
 	connection   net.Conn
-	serverName   string
+	ServerName   string
+	ServerVersion string
+  ServerDedicated  bool // is this a dedicated server?
+	MapName string
+	MapSeed uint32
+	MapLandscape byte
+	MapX uint16
+	MapY uint16
+
 	rconDaily    []string
 	rconMonthly  []string
 	rconYearly   []string
@@ -296,8 +304,28 @@ SocketLoop:
 				// fmt.Print(" - Got a adminPacketServerPROTOCOL packet\n")
 			} else if packetType == adminPacketServerWELCOME {
 				log.Println("received welcome packet")
-				server.serverName = extractString(packetData[0:])
-				// fmt.Printf("   * server name: %s\n", serverName)
+				fmt.Printf("packet: %+v?\n", packetData[:])
+				var next int
+				server.ServerName, next = extractString(packetData[:], 0)
+				server.ServerVersion, next = extractString(packetData[:], next)
+        if (packetData[next] == 0000) {
+					server.ServerDedicated = false
+				} else if (packetData[next] == 0001) {
+ 					server.ServerDedicated = true
+				} else {
+					fmt.Printf("not bool %v?\n", packetData[next])
+				}
+				server.MapName, next = extractString(packetData[:], next+1)
+				server.MapSeed = binary.LittleEndian.Uint32(packetData[next:next+4])
+				server.MapLandscape = packetData[next+4]
+				// todo
+				// p->Send_uint32(ConvertYMDToDate(_settings_game.game_creation.starting_year, 0, 1));
+				server.MapX = binary.LittleEndian.Uint16(packetData[next+9:next+11])
+				server.MapY = binary.LittleEndian.Uint16(packetData[next+11:next+13])
+
+				log.Printf("server: %s version: %s dedicated: %v map: %s %d/%d size\n", server.ServerName, server.ServerVersion, server.ServerDedicated, server.MapName, server.MapX, server.MapY)
+
+				// fmt.Printf("   * server name: %s\n", ServerName)
 			} else if packetType == adminPacketServerSHUTDOWN {
 				log.Println("server shutting down - will try to reconnect")
 				server.connection = nil
@@ -318,16 +346,17 @@ SocketLoop:
 				chatAction := int8(packetData[0])
 				chatDestType := int8(packetData[1])
 				chatClientID := binary.LittleEndian.Uint32(packetData[2:6])
-				chatMsg := extractString(packetData[6:])
+				// var chatMsg string
+				chatMsg, _ := extractString(packetData[:], 6)
 				chatData := binary.LittleEndian.Uint64(packetData[len(packetData)-8:])
 				log.Printf("chat message: action %v desttype %v, client id %v msg %v data %v\n", chatAction, chatDestType, chatClientID, string(chatMsg), chatData)
 			} else if packetType == adminPacketServerRCON {
 				colour := binary.LittleEndian.Uint16(packetData[0:2])
-				string := extractString(packetData[2:])
-				log.Printf("rcon: colour %v : %s\n", colour, string)
+				rconRecvString, _ := extractString(packetData[:], 2)
+				log.Printf("rcon: colour %v : %s\n", colour, rconRecvString)
 			} else if packetType == adminPacketServerRCON_END {
-				string := extractString(packetData[0:])
-				log.Printf("rcon end : %s\n", string)
+				rconEndRecvString, _ := extractString(packetData[:], 0)
+				log.Printf("rcon end : %s\n", rconEndRecvString)
 			} else {
 				log.Printf("unknown packet received from server: %v [%v]\n", string(packetData), packetData)
 			}
@@ -348,13 +377,13 @@ SocketLoop:
 
 }
 
-func extractString(bytes []byte) string {
-	var str []byte
-	for i := 0; i <= len(bytes); i++ {
+func extractString(bytes []byte, start int) (string, int) {
+	var buildString []byte
+	for i := start; i <= len(bytes); i++ {
 		if bytes[i] == 0 {
-			return string(str)
+			return string(buildString), i+1
 		}
-		str = append(str, bytes[i])
+		buildString = append(buildString, bytes[i])
 	}
-	return ""
+	return "", -1
 }
