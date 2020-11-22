@@ -11,23 +11,23 @@ package admin
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"time"
-	"log"
 )
 
 // OpenTTDServer - an object representing the server connection
 type OpenTTDServer struct {
-	connection   net.Conn
-	ServerName   string
-	ServerVersion string
-  ServerDedicated  bool // is this a dedicated server?
-	MapName string
-	MapSeed uint32
-	MapLandscape byte
-	MapX uint16
-	MapY uint16
+	connection      net.Conn
+	ServerName      string
+	ServerVersion   string
+	ServerDedicated bool // is this a dedicated server?
+	MapName         string
+	MapSeed         uint32
+	MapLandscape    byte
+	MapX            uint16
+	MapY            uint16
 
 	rconDaily    []string
 	rconMonthly  []string
@@ -308,20 +308,20 @@ SocketLoop:
 				var next int
 				server.ServerName, next = extractString(packetData[:], 0)
 				server.ServerVersion, next = extractString(packetData[:], next)
-        if (packetData[next] == 0000) {
+				if packetData[next] == 0000 {
 					server.ServerDedicated = false
-				} else if (packetData[next] == 0001) {
- 					server.ServerDedicated = true
+				} else if packetData[next] == 0001 {
+					server.ServerDedicated = true
 				} else {
 					fmt.Printf("not bool %v?\n", packetData[next])
 				}
 				server.MapName, next = extractString(packetData[:], next+1)
-				server.MapSeed = binary.LittleEndian.Uint32(packetData[next:next+4])
+				server.MapSeed = binary.LittleEndian.Uint32(packetData[next : next+4])
 				server.MapLandscape = packetData[next+4]
 				// todo
 				// p->Send_uint32(ConvertYMDToDate(_settings_game.game_creation.starting_year, 0, 1));
-				server.MapX = binary.LittleEndian.Uint16(packetData[next+9:next+11])
-				server.MapY = binary.LittleEndian.Uint16(packetData[next+11:next+13])
+				server.MapX = binary.LittleEndian.Uint16(packetData[next+9 : next+11])
+				server.MapY = binary.LittleEndian.Uint16(packetData[next+11 : next+13])
 
 				log.Printf("server: %s version: %s dedicated: %v map: %s %d/%d size\n", server.ServerName, server.ServerVersion, server.ServerDedicated, server.MapName, server.MapX, server.MapY)
 
@@ -381,7 +381,7 @@ func extractString(bytes []byte, start int) (string, int) {
 	var buildString []byte
 	for i := start; i <= len(bytes); i++ {
 		if bytes[i] == 0 {
-			return string(buildString), i+1
+			return string(buildString), i + 1
 		}
 		buildString = append(buildString, bytes[i])
 	}
