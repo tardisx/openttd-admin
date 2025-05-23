@@ -1,3 +1,7 @@
+# ARCHIVED - 2025-05-23
+
+Due to GitHub's AI enshittification, this project has been moved to https://code.ppl.town/justin/openttd-admin
+
 # openttd-admin
 
 This is a Golang interface to an OpenTTD server, and a standalone 'openttd_multitool' binary
